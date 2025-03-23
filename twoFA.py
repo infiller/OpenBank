@@ -1,135 +1,107 @@
 import time
-import json
 import os
-import pyAesCrypt
 import pyotp
 import qrcode
 import getpass
-import subprocess
-from PIL import Image, ImageTk
-import tkinter as tk
 import sqlite3
-#from datetime import datetime
-
+import tkinter as tk
+from PIL import Image, ImageTk
 
 # Farben für Konsole
 TGREEN = '\033[32m'  # Green Text
 TRED = '\033[31m'  # Red Text
 ENDC = '\033[m'  # Reset
 
-# Klasse für Benutzer
-class User:
-    def __init__(self, usr_id, usr_pin, secret):
-        self.usr_id = usr_id
-        self.usr_pin = usr_pin
-        self.secret = secret
-        self.balance = 0.0
-        self.transactions = []
-        last_login = 0.0
-
-    def add_transaction(self, amount, typ):
-        self.transactions.append(f"{typ}: {amount:.2f} € Datum: {time.strftime('%d.%m.%Y %H:%M:%S')}")
-    
 # Klasse für die Verwaltung von SQLite Datenbank
 class SQLiteDataManager:
     def __init__(self, db_path):
         self.db_path = db_path
-        self.setup_database() # einrichten falls noch nicht vorhanden
+        self.setup_database()
 
-    def get_connection(self): # Verbindung zu Datenbank
+    def get_connection(self):
         return sqlite3.connect(self.db_path)
     
     def setup_database(self):
         conn = self.get_connection()
         c = conn.cursor()
-        # Tabellen
         c.execute('''CREATE TABLE IF NOT EXISTS 
-                users(
-                    usr_id TEXT PRIMARY KEY,
-                    usr_pin TEXT,
-                    secret TEXT,
-                    balance REAL,
-                    last_login REAL
-                    )
-                ''')
+                  users(
+                      usr_id TEXT PRIMARY KEY,
+                      usr_pin TEXT,
+                      secret TEXT,
+                      balance REAL,
+                      last_login REAL
+                  )''')
         c.execute('''CREATE TABLE IF NOT EXISTS
                   transactions(
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    usr_id TEXT,
-                    amount REAL,
-                    type TEXT,
-                    date TEXT,
-                    FOREIGN KEY(usr_id) REFERENCES users(usr_id)
-                  )
-                ''')
+                      id INTEGER PRIMARY KEY AUTOINCREMENT,
+                      usr_id TEXT,
+                      amount REAL,
+                      type TEXT,
+                      date TEXT,
+                      FOREIGN KEY(usr_id) REFERENCES users(usr_id)
+                  )''')
         conn.commit()
         conn.close()
     
     def load_users(self):
         conn = self.get_connection()
-        c = conn.cursor
-        c.execute("SELCT * from users")
-        users = {row[0]: 
-                 {'usr_id': row[0], 'usr_pin': row[1], 'secret': row[2], 'balance': row[3], 'last_login': row[4]} 
-                 for row in c.fetchall()}
+        c = conn.cursor()
+        c.execute("SELECT * FROM users")
+        users = {}
+        for row in c.fetchall():
+            users[row[0]] = {
+                'usr_id': row[0],
+                'usr_pin': row[1],
+                'secret': row[2],
+                'balance': row[3],
+                'last_login': row[4] if row[4] is not None else 0.0
+            }
         conn.close()
         return users
 
     def save_user(self, user):
         conn = self.get_connection()
-        c = conn.cursor
-        c.execute('''INSERT OR REPLACE INTO users (usr_id, usr_pin, secret, balance, last_login)
-                     VALUES                       (     ?,       ?,       ?,      ?,          ?)''', 
-                  (user['usr_id'], user['usr_pin'], user['secret'], user['balance'], user['last_login']))
-        conn.commit()
-        conn.close()
+        c = conn.cursor()
+        try:
+            c.execute('''INSERT OR REPLACE INTO users 
+                       (usr_id, usr_pin, secret, balance, last_login)
+                       VALUES (?, ?, ?, ?, ?)''', 
+                    (user['usr_id'], user['usr_pin'], user['secret'], 
+                     user['balance'], user['last_login']))
+            conn.commit()
+        except sqlite3.Error as e:
+            print(f"Datenbankfehler: {e}")
+        finally:
+            conn.close()
 
-    def add_transaction(self, usr_id, amount, type):
+    def add_transaction(self, usr_id, amount, transaction_type):
         conn = self.get_connection()
-        c = conn.cursor
-        c.execute('''INSERT INTO transactions (usr_id, amount, type, date)
-                     VALUES                   (     ?,      ?,    ?,    ?)''',
-                                              (usr_id, amount, type, time.strftime('%d.%m.%Y %H%M%S')))
-        conn.commit
-        conn.close()
+        c = conn.cursor()
+        try:
+            c.execute('''INSERT INTO transactions 
+                       (usr_id, amount, type, date)
+                       VALUES (?, ?, ?, ?)''',
+                    (usr_id, amount, transaction_type, 
+                     time.strftime('%d.%m.%Y %H:%M:%S')))
+            conn.commit()
+        except sqlite3.Error as e:
+            print(f"Datenbankfehler: {e}")
+        finally:
+            conn.close()
     
     def get_transactions(self, usr_id):
         conn = self.get_connection()
-        c = conn.cursor
-        c.execute("SELECT * FROM transactions WHERE usr_id = ?", (usr_id))
-        transactions = [f"{row[3]}: {row[2]:.2f} € Datum: {row[4]}" for row in c.fetchall()]
-        conn.close
+        c = conn.cursor()
+        transactions = []
+        try:
+            c.execute("SELECT type, amount, date FROM transactions WHERE usr_id=?", (usr_id,))
+            transactions = [f"{row[0]}: {row[1]:.2f} € Datum: {row[2]}" for row in c.fetchall()]
+        except sqlite3.Error as e:
+            print(f"Datenbankfehler: {e}")
+        finally:
+            conn.close()
         return transactions
-
-"""
-OLD DATAMANAGER
-# Klasse für Datenmanagement
-class DataManager:
-    def __init__(self, db_path, db_password):
-        self.db_path = db_path
-        self.db_password = db_password
-
-    def load_users(self):
-        try:
-            if os.path.exists(self.db_path + ".aes"):
-                pyAesCrypt.decryptFile(self.db_path + ".aes", self.db_path, self.db_password)
-                with open(self.db_path, 'r') as file:
-                    return json.load(file)
-            else:
-                return {}
-        except Exception as e:
-            print(TRED + f"Fehler beim Laden der Daten: {e}" + ENDC)
-            return {}
-
-    def save_users(self, users):
-        try:
-            with open(self.db_path, 'w') as file:
-                json.dump(users, file, indent=4)
-            pyAesCrypt.encryptFile(self.db_path, self.db_path + ".aes", self.db_password)
-            os.remove(self.db_path)
-        except Exception as e:
-            print(TRED + f"Fehler beim Speichern der Daten: {e}" + ENDC)"
-"""
 
 # Klasse für 2FA
 class AuthManager:
@@ -139,6 +111,8 @@ class AuthManager:
 
     @staticmethod
     def verify_2fa(secret, code):
+        if not secret:
+            return False
         return pyotp.TOTP(secret).verify(code)
 
     @staticmethod
@@ -147,7 +121,7 @@ class AuthManager:
         qr = qrcode.make(uri)
         qr_file = os.path.join(os.getcwd(), f"{usr_id}_2fa.png")
         qr.save(qr_file)
-        print(TGREEN + f"Scanne den QR-Code {qr_file} mit Google Authenticator." + ENDC)
+        print(f"{TGREEN}Scanne den QR-Code {qr_file} mit Google Authenticator.{ENDC}")
         return qr_file
 
 # Klasse für das Banksystem
@@ -158,12 +132,17 @@ class BankSystem:
         self.users = self.data_manager.load_users()
         self.versuche = 3
 
-        # Admin-Konto erstellen, falls nicht vorhanden
         if "admin" not in self.users:
-            admin_user = {'usr_id': 'admin', 'usr_pin': 'admin', 'secret': None, 'balance': 0.0, 'last_login': 0.0}
+            admin_user = {
+                'usr_id': 'admin',
+                'usr_pin': 'admin',
+                'secret': None,
+                'balance': 0.0,
+                'last_login': 0.0
+            }
             self.data_manager.save_user(admin_user)
             self.users["admin"] = admin_user
-            print(TGREEN + "Admin-Konto erstellt. Verwenden Sie 'admin' als Kontonummer und 'admin' als PIN." + ENDC)
+            print(f"{TGREEN}Admin-Konto erstellt.{ENDC}")
 
     def register(self):
         usr_id = input("Bitte geben Sie Ihre neue Kontonummer ein: ")
@@ -240,7 +219,7 @@ class BankSystem:
                         code = input("Bitte geben Sie den 2FA Code aus der App ein: ")
                         if self.auth_manager.verify_2fa(secret, code):
                             self.users[usr_id]['last_login'] = current_time #update last login
-                            self.data_manager.save_users(self.users)
+                            self.data_manager.save_user(self.users[usr_id])
                             print(TGREEN + "Authentifizierung erfolgreich!" + ENDC)
                             self.main_menu(usr_id)
                             break
@@ -279,7 +258,7 @@ class BankSystem:
                 print(TGREEN + "Authentifizierung erfolgreich, bitte geben Sie Ihren neuen PIN ein: " + ENDC)
                 new_pin = getpass.getpass()
                 self.users[usr_id]['usr_pin'] = new_pin
-                self.data_manager.save_users(self.users)
+                self.data_manager.save_user(self.users[usr_id])
                 print(TGREEN + "PIN erfolgreich aktualisiert" + ENDC)
             else:
                 print(TRED + "Falscher 2FA Code" + ENDC)
@@ -301,6 +280,7 @@ class BankSystem:
         if amount > self.users[usr_id]["balance"]:
             print(TRED + f'Sie wollen mehr auszahlen als Sie auf dem Konto haben. Ihr Kontostand beträgt: {self.users[usr_id]["balance"]:.2f} €' + ENDC)
         else:
+            self.users[usr_id]["balance"] -= amount
             self.data_manager.save_user(self.users[usr_id])
             self.data_manager.add_transaction(usr_id, -amount, 'Auszahlung')
             print(f'Sie haben {amount:.2f} € abgehoben')
