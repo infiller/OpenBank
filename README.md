@@ -1,14 +1,14 @@
 # OpenBank
 # Features
-# Benutzerverwaltung
-Registrierung + 2FA
-Anmeldung mit 2FA (Timeout von 5 Minuten)
-Admin Konto der automatisch erstellt wird
-# Sicherheit
+# # Benutzerverwaltung
+- Registrierung + 2FA
+- Anmeldung mit 2FA (Timeout von 5 Minuten)
+- Admin Konto der automatisch erstellt wird
+# # Sicherheit
 Zwei-Faktor-Authentifizierung
 Pin Zurücksetzung (mithilfe von 2FA)
 Kontonummer-Wiederherstellung
-# Transaktionen
+# # Transaktionen
 Einzahlung
 Auszahlung
 Überweisung (mit Transaktionsgebühr von 1€)
