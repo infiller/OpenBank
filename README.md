@@ -17,7 +17,8 @@
 - Kontostand
 - Transaktionshistorie
 ### Datenmanagement
-- Verschlüsselte Datenspeicherung (JSON-Datei -> mit AES verschlüsselt und entschlüsselt)
+~~- Verschlüsselte Datenspeicherung (JSON-Datei -> mit AES verschlüsselt und entschlüsselt)~~
+- SQLite3 Database für besseres Datenmanagement
 ### Benutzeroberfläche
 - Konsolenbasierte Menüs
 - QR-Code-Anzeige (automatische Erscheinung und Erlöschung)
@@ -51,3 +52,5 @@
 ### Internationalisierung
 - Mehrsprachigkeit (Deutsch, Englisch usw)
 - Lokale Währunge  (basiert aufm Standort)
+~~### Database
+- SQLite3 Database für besseres Datenmanagement~~

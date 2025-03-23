@@ -8,62 +8,8 @@ import getpass
 import subprocess
 from PIL import Image, ImageTk
 import tkinter as tk
+import sqlite3
 #from datetime import datetime
-
-# dev: @infiller - GitHub
-#------------Features-------------#
-# Benutzerverwaltung
-# - Registrierung + 2FA
-# - Anmeldung mit 2FA (Timeout von 5 Minuten)
-# - Admin Konto der automatisch erstellt wird
-# Sicherheit
-# - Zwei-Faktor-Authentifizierung
-# - Pin Zurücksetzung (mithilfe von 2FA)
-# - Kontonummer-Wiederherstellung
-# Transaktionen
-# - Einzahlung
-# - Auszahlung
-# - Überweisung (mit Transaktionsgebühr von 1€)
-# - Kontoauszüge
-# Kontoverwaltung
-# - Kontostand
-# - Transaktionshistorie
-# Datenmanagement
-# - Verschlüsselte Datenspeicherung (JSON-Datei -> mit AES verschlüsselt und entschlüsselt)
-# Benutzeroberfläche
-# - Konsolenbasierte Menüs
-# - QR-Code-Anzeige (automatische Erscheinung und Erlöschung)
-# Fehlerbehandlung
-# - Klare Fehlermeldungen
-# - Versuche (3 Versuche + Timer)
-# Erweitbarkeit
-# - Modularer Code (Klassen wie User, DataManagement, AuthManager)
-
-#------------To-Do----------------#
-# GUI
-# - Modernes Design (customtkinter oder tkinter)
-# - Buttons, Eingabefelder und visuelle Elemente
-# - Dark Mode
-# - Responsive Layout
-# Erweiterte Sicherheitsfeatures
-# - Passwortstärkeüberprüfung (Mindestlänger, Sonderzeichen..)
-# - Sicherheitsfragen 
-# Mehrere Währungen
-# - Währungsumrechnung (Konten in verschiedene Währungen + Integration einer API für Echtzeit-Wechselkurse (Open Exchange Rates))
-# - Automatische Umrechnung (bei Überweisungen)
-# Benachrichtigungen
-# - E-Mail-Benachrichtigungen (bei Transaktionen, Kontostandänderungen)
-# Erweiterte Transaktionsfunktionen
-# - Daueraufträge
-# - Transaktionslimits
-# - Kreditverwaltung
-# Erweiterte Admin-Funktionen
-# - Benutzerverwaltung 
-# - Transaktionsverwaltung
-# Internationalisierung
-# - Mehrsprachigkeit (Deutsch, Englisch usw)
-# - Lokale Währunge  (basiert aufm Standort)
-# -
 
 
 # Farben für Konsole
@@ -83,7 +29,80 @@ class User:
 
     def add_transaction(self, amount, typ):
         self.transactions.append(f"{typ}: {amount:.2f} € Datum: {time.strftime('%d.%m.%Y %H:%M:%S')}")
+    
+# Klasse für die Verwaltung von SQLite Datenbank
+class SQLiteDataManager:
+    def __init__(self, db_path):
+        self.db_path = db_path
+        self.setup_database() # einrichten falls noch nicht vorhanden
 
+    def get_connection(self): # Verbindung zu Datenbank
+        return sqlite3.connect(self.db_path)
+    
+    def setup_database(self):
+        conn = self.get_connection()
+        c = conn.cursor()
+        # Tabellen
+        c.execute('''CREATE TABLE IF NOT EXISTS 
+                users(
+                    usr_id TEXT PRIMARY KEY,
+                    usr_pin TEXT,
+                    secret TEXT,
+                    balance REAL,
+                    last_login REAL
+                    )
+                ''')
+        c.execute('''CREATE TABLE IF NOT EXISTS
+                  transactions(
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    usr_id TEXT,
+                    amount REAL,
+                    type TEXT,
+                    date TEXT,
+                    FOREIGN KEY(usr_id) REFERENCES users(usr_id)
+                  )
+                ''')
+        conn.commit()
+        conn.close()
+    
+    def load_users(self):
+        conn = self.get_connection()
+        c = conn.cursor
+        c.execute("SELCT * from users")
+        users = {row[0]: 
+                 {'usr_id': row[0], 'usr_pin': row[1], 'secret': row[2], 'balance': row[3], 'last_login': row[4]} 
+                 for row in c.fetchall()}
+        conn.close()
+        return users
+
+    def save_user(self, user):
+        conn = self.get_connection()
+        c = conn.cursor
+        c.execute('''INSERT OR REPLACE INTO users (usr_id, usr_pin, secret, balance, last_login)
+                     VALUES                       (     ?,       ?,       ?,      ?,          ?)''', 
+                  (user['usr_id'], user['usr_pin'], user['secret'], user['balance'], user['last_login']))
+        conn.commit()
+        conn.close()
+
+    def add_transaction(self, usr_id, amount, type):
+        conn = self.get_connection()
+        c = conn.cursor
+        c.execute('''INSERT INTO transactions (usr_id, amount, type, date)
+                     VALUES                   (     ?,      ?,    ?,    ?)''',
+                                              (usr_id, amount, type, time.strftime('%d.%m.%Y %H%M%S')))
+        conn.commit
+        conn.close()
+    
+    def get_transactions(self, usr_id):
+        conn = self.get_connection()
+        c = conn.cursor
+        c.execute("SELECT * FROM transactions WHERE usr_id = ?", (usr_id))
+        transactions = [f"{row[3]}: {row[2]:.2f} € Datum: {row[4]}" for row in c.fetchall()]
+        conn.close
+        return transactions
+
+"""
+OLD DATAMANAGER
 # Klasse für Datenmanagement
 class DataManager:
     def __init__(self, db_path, db_password):
@@ -109,7 +128,8 @@ class DataManager:
             pyAesCrypt.encryptFile(self.db_path, self.db_path + ".aes", self.db_password)
             os.remove(self.db_path)
         except Exception as e:
-            print(TRED + f"Fehler beim Speichern der Daten: {e}" + ENDC)
+            print(TRED + f"Fehler beim Speichern der Daten: {e}" + ENDC)"
+"""
 
 # Klasse für 2FA
 class AuthManager:
@@ -133,15 +153,16 @@ class AuthManager:
 # Klasse für das Banksystem
 class BankSystem:
     def __init__(self):
-        self.data_manager = DataManager("benutzer_daten.json", "hskiu_MS02uj3==2")
+        self.data_manager = SQLiteDataManager('bank_database.db')
         self.auth_manager = AuthManager()
         self.users = self.data_manager.load_users()
         self.versuche = 3
 
         # Admin-Konto erstellen, falls nicht vorhanden
         if "admin" not in self.users:
-            self.users["admin"] = User("admin", "admin", None).__dict__  # Kein 2FA für Admin
-            self.data_manager.save_users(self.users)
+            admin_user = {'usr_id': 'admin', 'usr_pin': 'admin', 'secret': None, 'balance': 0.0, 'last_login': 0.0}
+            self.data_manager.save_user(admin_user)
+            self.users["admin"] = admin_user
             print(TGREEN + "Admin-Konto erstellt. Verwenden Sie 'admin' als Kontonummer und 'admin' als PIN." + ENDC)
 
     def register(self):
@@ -160,7 +181,7 @@ class BankSystem:
         self.show_qr_window(qr_file) # QR-Code in einem tkinter fenster anzeigen
 
         while True:
-            self.qr_window.update() #damit tkinter das programm nicht blockiert
+            self.qr_window.update() # damit tkinter das programm nicht blockiert
             code = input("2FA Code aus der App: ")
             if self.auth_manager.verify_2fa(secret, code):
                 print(TGREEN + "2FA erfolgreich aktiviert!" + ENDC)
@@ -169,12 +190,10 @@ class BankSystem:
                 print(TRED + "Falscher Code. Bitte versuchen Sie es erneut." + ENDC)
 
         # Benutzerdaten speichern
-        self.users[usr_id] = User(usr_id, usr_pin, secret).__dict__
-        self.data_manager.save_users(self.users)
-        print(TGREEN + "Registrierung erfolgreich! 2FA aktiviert." + ENDC)
-
+        new_user = {"usr_id": usr_id, "usr_pin": usr_pin, "secret": secret, "balance": 0.0, "last_login": 0.0}
+        self.data_manager.save_user(new_user)
+        self.users[usr_id] = new_user
         os.remove(qr_file)  # QR-Code aus Sicherheitsgründen löschen
-
         self.close_qr_window()
 
     def show_qr_window(self, qr_file):
@@ -273,8 +292,8 @@ class BankSystem:
     def deposit(self, usr_id):
         amount = float(input("Bitte geben Sie den gewünschten Einzahlungsbetrag ein: "))
         self.users[usr_id]["balance"] += amount
-        self.users[usr_id]["transactions"].append(TGREEN + f'Einzahlung: +{amount:.2f} € Datum: {time.strftime("%d.%m.%Y %H:%M:%S")}' + ENDC)
-        self.data_manager.save_users(self.users)
+        self.data_manager.save_user(self.users[usr_id])
+        self.data_manager.add_transaction(usr_id, amount, 'Einzahlung')
         print(f'Sie haben {amount:.2f} € eingezahlt. Der neue Kontostand beträgt jetzt {self.users[usr_id]["balance"]:.2f} €')
         
     def payout(self, usr_id):
@@ -282,17 +301,16 @@ class BankSystem:
         if amount > self.users[usr_id]["balance"]:
             print(TRED + f'Sie wollen mehr auszahlen als Sie auf dem Konto haben. Ihr Kontostand beträgt: {self.users[usr_id]["balance"]:.2f} €' + ENDC)
         else:
-            self.users[usr_id]["balance"] -= amount
-            self.users[usr_id]["transactions"].append(TRED + f'Auszahlung: -{amount:.2f} € Datum: {time.strftime("%d.%m.%Y %H:%M:%S")}' + ENDC)
-            self.data_manager.save_users(self.users)
+            self.data_manager.save_user(self.users[usr_id])
+            self.data_manager.add_transaction(usr_id, -amount, 'Auszahlung')
             print(f'Sie haben {amount:.2f} € abgehoben')
             print(f'Ihr neuer Kontostand beträgt: {self.users[usr_id]["balance"]:.2f} €')
 
     def transactions(self, usr_id):
         print("Kontoauszug:")
-        for statement in self.users[usr_id]["transactions"]:
+        for statement in self.data_manager.get_transactions(usr_id):
             print(statement)
-    
+
     def transfer(self, sender_id):
         print("\nTransaktionsgebühr: 1 €")
         receiver_id = input("Bitte geben Sie die Kontonummer des Empfängers ein: ")
@@ -309,12 +327,13 @@ class BankSystem:
         self.users["admin"]['balance'] += 1
         self.users[receiver_id]['balance'] += amount
 
-        #transaktion
-        self.users[sender_id]['transactions'].append(TRED + f'Überweisung: -{amount+1:.2f} € Datum: {time.strftime("%d.%m.%Y %H:%M:%S")}' + ENDC)
-        #self.users[sender_id]['transactions'].append(TRED + f'Gebühr: -{1.00:.2f} € Datum: {time.strftime("%d.%m.%Y %H:%M:%S")}' + ENDC)
-        self.users[receiver_id]['transactions'].append(TGREEN + f'Überweisung: -{amount:.2f} € Datum: {time.strftime("%d.%m.%Y %H:%M:%S")}' + ENDC)
+        #transaktionen speichern
+        self.data_manager.save_user(self.users[sender_id])
+        self.data_manager.save_user(self.users[receiver_id])
+        self.data_manager.save_user(self.users["admin"])
+        self.data_manager.add_transaction(sender_id, - (amount +1), 'Überweisung')
+        self.data_manager.add_transaction(receiver_id, amount, 'Überweisung')
         
-        self.data_manager.save_users(self.users) # speichern
         print(TGREEN + f"Überweisung von {amount:.2f} € an {receiver_id} erfolgrecih." + ENDC)
 
     def main_menu(self, usr_id):
