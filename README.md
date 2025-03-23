@@ -52,5 +52,5 @@
 ### Internationalisierung
 - Mehrsprachigkeit (Deutsch, Englisch usw)
 - Lokale Währunge  (basiert aufm Standort)
-~~### Database~~
+### Database
 ~~- SQLite3 Database für besseres Datenmanagement~~
