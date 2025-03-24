@@ -39,6 +39,7 @@ class SQLiteDataManager:
                       amount REAL,
                       type TEXT,
                       date TEXT,
+                      sender_receiver TEXT,
                       FOREIGN KEY(usr_id) REFERENCES users(usr_id)
                   )''')
         conn.commit()
@@ -84,7 +85,24 @@ class SQLiteDataManager:
             conn.close()
 
     def delete_user(self, usr_id):
-        return
+        conn = self.get_connection()
+        c = conn.cursor()
+        try:
+            c.execute('''DELETE FROM users WHERE usr_id = ?''', (usr_id,))
+            conn.commit()
+        finally:
+            conn.close()
+    
+    def get_all_transactions(self, usr_id=None):
+        conn = self.get_connection()
+        c = conn.cursor()
+        if usr_id:
+            c.execute("SELECT * FROM transactions WHERE usr_id = ?", (usr_id,))
+        else:
+            c.execute("SELECT * FROM transactions")
+        transactions = c.fetchall()
+        conn.close()
+        return transactions
 
     def add_transaction(self, usr_id, amount, transaction_type):
         conn = self.get_connection()
@@ -141,7 +159,8 @@ class BankSystem:
         self.data_manager = SQLiteDataManager('bank_database.db')
         self.auth_manager = AuthManager()
         self.users = self.data_manager.load_users()
-        self.versuche = 3
+        initial_versuche = 3
+        self.versuche = initial_versuche
 
         if "admin" not in self.users:
             admin_user = {
@@ -252,6 +271,13 @@ class BankSystem:
             return True
         return False
 
+    def list_all_users(self):
+        users = self.data_manager.get_all_users()
+        print("\nAlle Benutzer:")
+        for user in users:
+            print(f"Konto: {user[0]} | Balance: {user[3]:.2f} €")
+    
+
     def find_user(self):
         code = input("Bitte geben Sie den OTP Code aus dem Authenticator ein: ")
         for usr_id, user_data in self.users.items():
@@ -259,6 +285,19 @@ class BankSystem:
                 print(TGREEN + f"Ihre Kontonummer ist: {usr_id}" + ENDC)
                 return
         print(TRED + "Kein Benutzer mit diesem OTP Code gefunden." + ENDC)
+    
+    def delete_user(self):
+        target = input("Zu löschende Kontonummer: ")
+        if target == "admin":
+            print("Admin-Konto kann nicht gelöscht werden. Wer denkst du wer du bist ?")
+            return
+
+        if target in self.users:
+            self.data_manager.delete_user(target)
+            del self.users[target]
+            print(f"Konto {target} gelöscht !")
+        else:
+            print("Konto nicht gefunden !")
 
     def reset_pin(self):
         usr_id = input("Bitte geben Sie Ihre Kontonummer ein: ")
@@ -301,6 +340,25 @@ class BankSystem:
         print("Kontoauszug:")
         for statement in self.data_manager.get_transactions(usr_id):
             print(statement)
+        
+    def view_all_transactions(self):
+        filter_user = input("Kontonummer filtern (leer lassen für alle): ")
+        transactions = self.data_manager.get_all_transactions(filter_user or None)
+
+        print("\n Alle Transaktionen: ")
+        for t in transactions:
+            print(f"{t[3]} | {t[1]} | {t[2]:.2f} € | {t[4]}")
+    
+    def admin_adjust_balance(self):
+        usr_id = input("Kontonummer: ")
+        if usr_id not in self.users:
+            print("Kontonummer existiert nicht !")
+            return
+
+        new_balance = float(input("Neuer Kontostand: "))
+        self.users[usr_id]["balance"] = new_balance
+        self.data_manager.save_user(self.users[usr_id])
+        print("Kontostand aktualisiert!")
 
     def transfer(self, sender_id):
         print("\nTransaktionsgebühr: 1 €")
@@ -337,6 +395,9 @@ class BankSystem:
             print("5. Kontoauszüge")
             print("6. Beenden")
 
+            if usr_id == "admin":
+                print("\n9. Admin-Menu")
+
             try:
                 auswahl = int(input("Bitte wählen Sie eine Option: "))
             except ValueError:
@@ -353,6 +414,11 @@ class BankSystem:
                 self.transfer(usr_id)
             elif auswahl == 5:
                 self.transactions(usr_id)
+            elif auswahl == 9:
+                if usr_id == "admin":
+                    self.admin_menu()
+                else:
+                    print(TRED + "Ungültige Auswahl. Bitte versuchen Sie es erneut." + ENDC)
             elif auswahl == 6:
                 print("Auf Wiedersehen")
                 break
@@ -393,13 +459,13 @@ class BankSystem:
             
             auswahl = input("Auswahl: ")
             if auswahl == "1":
-                self.list_all_user()
+                self.list_all_users()
             elif auswahl == "2":
-                self.admin_delete_user()
+                self.delete_user()
             elif auswahl == "3":
                 self.view_all_transactions()
             elif auswahl == "4":
-                self.admin_change_balance()
+                self.admin_adjust_balance()
             elif auswahl == "5":
                 break
             else:
