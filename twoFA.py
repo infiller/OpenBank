@@ -59,6 +59,14 @@ class SQLiteDataManager:
             }
         conn.close()
         return users
+    
+    def get_all_users(self):
+        conn = self.get_connection()
+        c = conn.cursor()
+        c.execute("SELECT * FROM users")
+        users = c.fetchall()
+        conn.close()
+        return users
 
     def save_user(self, user):
         conn = self.get_connection()
@@ -74,6 +82,9 @@ class SQLiteDataManager:
             print(f"Datenbankfehler: {e}")
         finally:
             conn.close()
+
+    def delete_user(self, usr_id):
+        return
 
     def add_transaction(self, usr_id, amount, transaction_type):
         conn = self.get_connection()
@@ -184,11 +195,11 @@ class BankSystem:
         self.qr_image = Image.open(qr_file) # Bild als Attribut speichern weil es sonst von dem Garbage Collector gelöscht wird XD
         self.img_tk = ImageTk.PhotoImage(self.qr_image) 
 
-        # Bild in einem Label anzeigen
+        # Bild in einem label anzeigen
         label = tk.Label(self.qr_window, image = self.img_tk)
         label.pack()
 
-        # Fenster aktualisieren
+        # fenster aktualisieren
         self.qr_window.update_idletasks()
         self.qr_window.update()
 
@@ -353,8 +364,8 @@ class BankSystem:
             print("\nHauptmenu:")
             print("1. Registrierung")
             print("2. Anmeldung")
-            print("3. Kontonr vergessen ?")
-            print("4. PIN vergessen ?")
+            print("3. Kontonr vergessen")
+            print("4. PIN vergessen")
             print("5. Beenden")
             auswahl = input("Bitte wählen Sie eine Option: ")
             if auswahl == "1":
@@ -370,6 +381,29 @@ class BankSystem:
                 break
             else:
                 print("Ungültige Auswahl.")
+    
+    def admin_menu(self):
+        while True:
+            print("\nAdmin-Menu:")
+            print("1. Benutzerliste")
+            print("2. Benutzer löschen")
+            print("3. Alle Transaktionen anzeigen")
+            print("4. Kontostand anpassen")
+            print("5. Zurück zum Hauptmenu")
+            
+            auswahl = input("Auswahl: ")
+            if auswahl == "1":
+                self.list_all_user()
+            elif auswahl == "2":
+                self.admin_delete_user()
+            elif auswahl == "3":
+                self.view_all_transactions()
+            elif auswahl == "4":
+                self.admin_change_balance()
+            elif auswahl == "5":
+                break
+            else:
+                print(TRED + "Ungültige Auswahl!" + ENDC)
 
 # Hauptprogramm
 if __name__ == "__main__":
