@@ -19,7 +19,9 @@ class SQLiteDataManager:
         self.setup_database()
 
     def get_connection(self):
-        return sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("PRAGMA foreign_keys = ON")
+        return conn
     
     def setup_database(self):
         conn = self.get_connection()
@@ -104,15 +106,15 @@ class SQLiteDataManager:
         conn.close()
         return transactions
 
-    def add_transaction(self, usr_id, amount, transaction_type):
+    def add_transaction(self, usr_id, amount, transaction_type, sender_receiver=None):
         conn = self.get_connection()
         c = conn.cursor()
         try:
             c.execute('''INSERT INTO transactions 
-                       (usr_id, amount, type, date)
-                       VALUES (?, ?, ?, ?)''',
+                       (usr_id, amount, type, date, sender_receiver)
+                       VALUES (?, ?, ?, ?, ?)''',
                     (usr_id, amount, transaction_type, 
-                     time.strftime('%d.%m.%Y %H:%M:%S')))
+                     time.strftime('%d.%m.%Y %H:%M:%S'), sender_receiver))
             conn.commit()
         except sqlite3.Error as e:
             print(f"Datenbankfehler: {e}")
@@ -124,8 +126,9 @@ class SQLiteDataManager:
         c = conn.cursor()
         transactions = []
         try:
-            c.execute("SELECT type, amount, date FROM transactions WHERE usr_id=?", (usr_id,))
-            transactions = [f"{row[0]}: {row[1]:.2f} € Datum: {row[2]}" for row in c.fetchall()]
+            c.execute("SELECT type, amount, date, sender_receiver FROM transactions WHERE usr_id=?", (usr_id,))
+            transactions = [f"{row[0]}: {row[1]:.2f} € Datum: {row[2]} {'(' + row[3] + ')' if row[3] else ''}" 
+                           for row in c.fetchall()]
         except sqlite3.Error as e:
             print(f"Datenbankfehler: {e}")
         finally:
@@ -159,8 +162,7 @@ class BankSystem:
         self.data_manager = SQLiteDataManager('bank_database.db')
         self.auth_manager = AuthManager()
         self.users = self.data_manager.load_users()
-        initial_versuche = 3
-        self.versuche = initial_versuche
+        self.versuche = 3
 
         if "admin" not in self.users:
             admin_user = {
@@ -199,7 +201,13 @@ class BankSystem:
                 print(TRED + "Falscher Code. Bitte versuchen Sie es erneut." + ENDC)
 
         # Benutzerdaten speichern
-        new_user = {"usr_id": usr_id, "usr_pin": usr_pin, "secret": secret, "balance": 0.0, "last_login": 0.0}
+        new_user = {
+            "usr_id": usr_id, 
+            "usr_pin": usr_pin, 
+            "secret": secret, 
+            "balance": 0.0, 
+            "last_login": 0.0
+            }
         self.data_manager.save_user(new_user)
         self.users[usr_id] = new_user
         os.remove(qr_file)  # QR-Code aus Sicherheitsgründen löschen
@@ -227,44 +235,81 @@ class BankSystem:
             self.qr_window.destroy() 
 
     def authenticate(self):
-        while self.versuche > 0:
-            usr_id = input("Bitte geben Sie Ihre Kontonummer ein: ")
-            usr_pin = getpass.getpass("Bitte geben Sie Ihren PIN ein: ")
+        MAX_ATTEMPTS = 3
+        TIMEOUTS = [3, 6, 12]
+        attempt = 0
 
-            if self.check_user(usr_id, usr_pin):
-                if usr_id == "admin":
-                    print(TGREEN + "Admin-Anmeldung erfolgreich!" + ENDC)
-                    self.main_menu(usr_id)
-                    break
-                else:
-                    user_data = self.users[usr_id]
-                    current_time = time.time()
-                    last_login = user_data.get('last_login')
-                    if (current_time - last_login) < 300:  # 300 sek = 5 min
-                        print(TGREEN + "Automatische Anmeldung" + ENDC)
-                        self.main_menu(usr_id)
-                        break
-                    else:
-                        secret = user_data['secret']
-                        code = input("Bitte geben Sie den 2FA Code aus der App ein: ")
-                        if self.auth_manager.verify_2fa(secret, code):
-                            self.users[usr_id]['last_login'] = current_time #update last login
-                            self.data_manager.save_user(self.users[usr_id])
-                            print(TGREEN + "Authentifizierung erfolgreich!" + ENDC)
-                            self.main_menu(usr_id)
-                            break
-                        else:
-                            print(TRED + "Falscher 2FA Code!" + ENDC)
-                            self.versuche -= 1
-                    wartezeit = 3 * (2 ** (2 - self.versuche))
-                    if self.versuche > 0:
-                        print(TRED + f'Kontonummer oder PIN falsch. Sie haben noch {self.versuche} Versuche.' + ENDC)
-                        print(f'Bitte warten Sie {wartezeit} Sekunden, bevor Sie es erneut versuchen.')
-                        time.sleep(wartezeit)
-                    else:
-                        print(TRED + "Kontonummer oder PIN falsch. Ihr Konto wurde gesperrt." + ENDC)
-                        print(f'Bitte warten Sie {wartezeit} Sekunden, bevor Sie es erneut versuchen.')
-                        time.sleep(wartezeit)
+        while attempt < MAX_ATTEMPTS:
+            usr_id = input(f"{TGREEN}Kontonummer ({MAX_ATTEMPTS - attempt} Versuche verbleibend): {ENDC}")
+            usr_pin = getpass.getpass(f"{TGREEN}PIN: {ENDC}")
+
+            if not self._check_credentials(usr_id, usr_pin):
+                attempt += 1
+                if attempt < MAX_ATTEMPTS:
+                    self._handle_failed_attempt(attempt, TIMEOUTS[attempt-1])
+                continue
+
+            
+            current_time = time.time()
+            user = self.users.get(usr_id)
+            last_login = user.get('last_login', 0)
+
+            if usr_id == "admin":
+                self._update_last_login(usr_id)
+                self.main_menu(usr_id)
+                return
+            
+            if (current_time - last_login) < 300:
+                print(f"{TGREEN} Automatische Anmeldung (innerhalb 5 Minuten){ENDC}")
+                self._update_last_login(usr_id)
+                self.main_menu(usr_id)
+                return
+
+            if self._2fa_check(usr_id):
+                self._update_last_login(usr_id)
+                self.main_menu(usr_id)
+                return
+            else:
+                print(f"{TRED}2FA-Überprüfung fehlgeschlagen !{ENDC}")
+                return
+
+        self._lock_account()
+
+    def _check_credentials(self, usr_id, usr_pin):
+        user = self.users.get(usr_id)
+        return user and user['usr_pin'] == usr_pin
+
+    def _2fa_check(self, usr_id):
+        user = self.users.get(usr_id)
+        if not user or not user['secret']:
+            return False
+    
+        for t in range(3): 
+            code = input(f"{TGREEN}2FA Code (Google Authenticator): {ENDC}")
+            if pyotp.TOTP(user['secret']).verify(code):
+                return True
+            print(f"{TRED}Falscher Code - {2 - t} Versuche verbleibend{ENDC}")
+        return False
+
+    def _handle_failed_attempt(self, attempt, timeout):
+        print(f"\n{TRED}Fehlgeschlagener Versuch {attempt}/3{ENDC}")
+        print(f"{TGREEN}Nächster Versuch in {timeout}s...{ENDC}")
+    
+        start = time.time()
+        while time.time() - start < timeout:
+            remaining = int(timeout - (time.time() - start))
+            print(f"\r{remaining:02d}s verbleibend | Letzter Versuch: {time.ctime()}", end="", flush=True)
+            time.sleep(0.1)
+        print("\n")
+
+    def _update_last_login(self, usr_id):
+        self.users[usr_id]['last_login'] = time.time()
+        self.data_manager.save_user(self.users[usr_id])
+
+    def _lock_account(self):
+        print(f"\n{TRED}Konto temporär gesperrt!{ENDC}")
+        print(f"{TGREEN}Bitte warten Sie 24 Stunden oder kontaktieren Sie den Support{ENDC}")
+        time.sleep(86400)
 
     def check_user(self, usr_id, usr_pin):
         if usr_id in self.users and self.users[usr_id]['usr_pin'] == usr_pin:
@@ -345,7 +390,7 @@ class BankSystem:
         filter_user = input("Kontonummer filtern (leer lassen für alle): ")
         transactions = self.data_manager.get_all_transactions(filter_user or None)
 
-        print("\n Alle Transaktionen: ")
+        print("\nAlle Transaktionen:")
         for t in transactions:
             print(f"{t[3]} | {t[1]} | {t[2]:.2f} € | {t[4]}")
     
@@ -380,10 +425,10 @@ class BankSystem:
         self.data_manager.save_user(self.users[sender_id])
         self.data_manager.save_user(self.users[receiver_id])
         self.data_manager.save_user(self.users["admin"])
-        self.data_manager.add_transaction(sender_id, - (amount +1), 'Überweisung')
-        self.data_manager.add_transaction(receiver_id, amount, 'Überweisung')
+        self.data_manager.add_transaction(sender_id, -(amount + 1), 'Überweisung', receiver_id)
+        self.data_manager.add_transaction(receiver_id, amount, 'Überweisung', sender_id)
         
-        print(TGREEN + f"Überweisung von {amount:.2f} € an {receiver_id} erfolgrecih." + ENDC)
+        print(TGREEN + f"Überweisung von {amount:.2f} € an {receiver_id} erfolgreich." + ENDC)
 
     def main_menu(self, usr_id):
         while True:

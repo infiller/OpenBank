@@ -22,6 +22,10 @@
 ### Benutzeroberfläche
 - Konsolenbasierte Menüs
 - QR-Code-Anzeige (automatische Erscheinung und Erlöschung)
+### Erweiterte Admin-Funktionen
+- Admin Menü
+- Benutzerverwaltung
+- Transaktionenverwaltung
 ### Fehlerbehandlung
 - Klare Fehlermeldungen
 - Versuche (3 Versuche + Timer)
@@ -47,8 +51,8 @@
 - Transaktionslimits
 - Kreditverwaltung
 ### Erweiterte Admin-Funktionen
-- Benutzerverwaltung 
-- Transaktionsverwaltung
+- ~~Benutzerverwaltung~~ 
+- ~~Transaktionsverwaltung~~
 ### Internationalisierung
 - Mehrsprachigkeit (Deutsch, Englisch usw)
 - Lokale Währunge  (basiert aufm Standort)
